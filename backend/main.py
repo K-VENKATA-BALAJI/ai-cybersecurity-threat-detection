@@ -6,7 +6,16 @@ import numpy as np
 import pandas as pd
 
 app = FastAPI(title="AI Cybersecurity Threat Detection API")
+def calculate_severity(prediction: str, confidence: float) -> str:
+    if prediction == "Normal":
+        return "Informational"
 
+    if confidence >= 85:
+        return "High"
+    elif confidence >= 60:
+        return "Medium"
+    else:
+        return "Low"
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -44,9 +53,13 @@ def predict(data: PredictionInput):
     pred = model.predict(scaled)[0]
     probability = float(model.predict_proba(scaled)[0][1])
 
+    prediction = "Attack" if pred == 1 else "Normal"
+    confidence = round(probability * 100, 2)
+
     return {
-        "prediction": "Attack" if pred == 1 else "Normal",
-        "confidence": round(probability * 100, 2)
+        "prediction": prediction,
+        "confidence": confidence,
+        "severity": calculate_severity(prediction, confidence)
     }
 
 
@@ -64,9 +77,13 @@ async def predict_csv(file: UploadFile = File(...)):
 
     results = []
     for pred, prob in zip(predictions, probabilities):
+        prediction = "Attack" if pred == 1 else "Normal"
+        confidence = round(float(prob) * 100, 2)
+
         results.append({
-            "prediction": "Attack" if pred == 1 else "Normal",
-            "confidence": round(float(prob) * 100, 2)
-        })
+            "prediction": prediction,
+            "confidence": confidence,
+            "severity": calculate_severity(prediction, confidence)
+            })
 
     return {"results": results}

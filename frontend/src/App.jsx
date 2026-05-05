@@ -37,7 +37,7 @@ function ConfidenceBar({ value }) {
   )
 }
 
-function ResultBadge({ prediction, confidence }) {
+function ResultBadge({ prediction, confidence, severity }) {
   const isAttack = prediction?.toLowerCase() === 'attack'
   return (
     <div className={`result-badge result-badge--${isAttack ? 'attack' : 'normal'}`}>
@@ -55,9 +55,17 @@ function ResultBadge({ prediction, confidence }) {
         )}
       </div>
       <div className="result-badge__content">
-        <span className="result-badge__status">{isAttack ? 'THREAT DETECTED' : 'TRAFFIC NORMAL'}</span>
-        <span className="result-badge__label">{prediction}</span>
-      </div>
+  <span className="result-badge__status">
+    {isAttack ? 'THREAT DETECTED' : 'TRAFFIC NORMAL'}
+  </span>
+  <span className="result-badge__label">{prediction}</span>
+
+  {confidence !== undefined && (
+    <div className={`severity-badge severity-${String(severity || '').toLowerCase()}`}>
+      Severity: {severity || "N/A"}
+    </div>
+  )}
+</div>
       {confidence !== undefined && (
         <div className="result-badge__conf">
           <span className="conf-subtitle">Confidence Score</span>
@@ -146,7 +154,11 @@ function ManualPredictionTab() {
         <button className="btn btn--ghost" onClick={handleClear} disabled={loading}>Clear</button>
       </div>
 
-      {result && <ResultBadge prediction={result.prediction} confidence={result.confidence} />}
+      {result && <ResultBadge
+  prediction={result.prediction}
+  confidence={result.confidence}
+  severity={result.severity}
+/>}
     </div>
   )
 }
