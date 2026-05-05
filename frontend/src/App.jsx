@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useMemo } from 'react'
 import axios from 'axios'
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
@@ -7,6 +7,14 @@ import {
 import './App.css'
 
 const API_BASE = 'http://127.0.0.1:8000'
+
+const SEVERITY_ORDER = ['High', 'Medium', 'Low', 'Informational']
+const SEVERITY_COLORS = {
+  High: '#ff4757',
+  Medium: '#ffa502',
+  Low: '#00d4ff',
+  Informational: '#00e676',
+}
 
 function Spinner() {
   return <span className="spinner"><span className="spinner-inner" /></span>
@@ -37,6 +45,15 @@ function ConfidenceBar({ value }) {
   )
 }
 
+function SeverityBadge({ severity }) {
+  if (!severity) return null
+  return (
+    <div className={`severity-badge severity-${String(severity).toLowerCase()}`}>
+      Severity: {severity}
+    </div>
+  )
+}
+
 function ResultBadge({ prediction, confidence, severity }) {
   const isAttack = prediction?.toLowerCase() === 'attack'
   return (
@@ -55,23 +72,100 @@ function ResultBadge({ prediction, confidence, severity }) {
         )}
       </div>
       <div className="result-badge__content">
-  <span className="result-badge__status">
-    {isAttack ? 'THREAT DETECTED' : 'TRAFFIC NORMAL'}
-  </span>
-  <span className="result-badge__label">{prediction}</span>
-
-  {confidence !== undefined && (
-    <div className={`severity-badge severity-${String(severity || '').toLowerCase()}`}>
-      Severity: {severity || "N/A"}
-    </div>
-  )}
-</div>
+        <span className="result-badge__status">
+          {isAttack ? 'THREAT DETECTED' : 'TRAFFIC NORMAL'}
+        </span>
+        <span className="result-badge__label">{prediction}</span>
+        {confidence !== undefined && <SeverityBadge severity={severity} />}
+      </div>
       {confidence !== undefined && (
         <div className="result-badge__conf">
           <span className="conf-subtitle">Confidence Score</span>
           <ConfidenceBar value={confidence} />
         </div>
       )}
+    </div>
+  )
+}
+
+function ResponsePanel({ severity, actions }) {
+  if (!actions || actions.length === 0) return null
+  return (
+    <div className={`response-panel response-panel--${String(severity || '').toLowerCase()}`}>
+      <div className="response-panel__header">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="response-panel__icon">
+          <path d="M12 2L2 7l10 5 10-5-10-5z" />
+          <path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" />
+        </svg>
+        <div>
+          <h3 className="response-panel__title">Automated Response</h3>
+          <p className="response-panel__subtitle">Recommended mitigation steps for this {severity?.toLowerCase()} event</p>
+        </div>
+      </div>
+      <ul className="response-panel__list">
+        {actions.map((action, i) => (
+          <li key={i} className="response-panel__item">
+            <span className="response-panel__bullet" />
+            {action}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function ExplainabilityPanel({ topFeatures }) {
+  if (!topFeatures || topFeatures.length === 0) return null
+
+  const chartData = topFeatures.map(f => ({
+    feature: f.feature,
+    impact: Number(f.impact.toFixed(4)),
+    abs: Math.abs(f.impact),
+  }))
+
+  return (
+    <div className="explain-panel">
+      <div className="explain-panel__header">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="explain-panel__icon">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
+        </svg>
+        <div>
+          <h3 className="explain-panel__title">Explainable AI (SHAP)</h3>
+          <p className="explain-panel__subtitle">Top features driving this classification</p>
+        </div>
+      </div>
+
+      <ul className="feature-list">
+        {topFeatures.map((f, i) => (
+          <li key={i} className="feature-list__item">
+            <span className="feature-list__rank">#{i + 1}</span>
+            <span className="feature-list__name">{f.feature}</span>
+            <span
+              className="feature-list__impact"
+              style={{ color: f.impact >= 0 ? '#ff4757' : '#00e676' }}
+            >
+              {f.impact >= 0 ? '+' : ''}{f.impact.toFixed(4)}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      <div className="explain-panel__chart">
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={chartData} layout="vertical" margin={{ top: 5, right: 16, left: 8, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+            <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis type="category" dataKey="feature" tick={{ fill: '#94a3b8', fontSize: 11 }} width={140} axisLine={false} tickLine={false} />
+            <Tooltip contentStyle={{ background: '#0d1117', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#f1f5f9', fontSize: '12px' }} />
+            <Bar dataKey="impact" radius={[0, 4, 4, 0]}>
+              {chartData.map((entry, i) => (
+                <Cell key={i} fill={entry.impact >= 0 ? '#ff4757' : '#00e676'} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   )
 }
@@ -154,12 +248,67 @@ function ManualPredictionTab() {
         <button className="btn btn--ghost" onClick={handleClear} disabled={loading}>Clear</button>
       </div>
 
-      {result && <ResultBadge
-  prediction={result.prediction}
-  confidence={result.confidence}
-  severity={result.severity}
-/>}
+      {result && (
+        <>
+          <ResultBadge
+            prediction={result.prediction}
+            confidence={result.confidence}
+            severity={result.severity}
+          />
+          <ResponsePanel severity={result.severity} actions={result.recommended_action} />
+          <ExplainabilityPanel topFeatures={result.top_features} />
+        </>
+      )}
     </div>
+  )
+}
+
+function CsvRow({ row, index }) {
+  const [open, setOpen] = useState(false)
+  const isAttack = row.prediction?.toLowerCase() === 'attack'
+  const hasExplanation = row.top_features && row.top_features.length > 0
+
+  return (
+    <>
+      <tr className={`csv-row csv-row--${isAttack ? 'attack' : 'normal'}`}>
+        <td className="csv-row__index">{index + 1}</td>
+        <td>
+          <span className={`csv-row__pred csv-row__pred--${isAttack ? 'attack' : 'normal'}`}>
+            {row.prediction}
+          </span>
+        </td>
+        <td>{row.confidence?.toFixed(2)}%</td>
+        <td><SeverityBadge severity={row.severity} /></td>
+        <td className="csv-row__actions">
+          {(row.recommended_action || []).slice(0, 1).map((a, i) => (
+            <span key={i} className="csv-row__action">{a}</span>
+          ))}
+          {row.recommended_action && row.recommended_action.length > 1 && (
+            <span className="csv-row__more">+{row.recommended_action.length - 1}</span>
+          )}
+        </td>
+        <td className="csv-row__expand">
+          <button
+            className="expand-btn"
+            onClick={() => setOpen(o => !o)}
+            disabled={!hasExplanation && (!row.recommended_action || row.recommended_action.length === 0)}
+            aria-expanded={open}
+          >
+            {open ? '−' : '+'}
+          </button>
+        </td>
+      </tr>
+      {open && (
+        <tr className="csv-row__detail-row">
+          <td colSpan={6}>
+            <div className="csv-row__detail">
+              <ResponsePanel severity={row.severity} actions={row.recommended_action} />
+              <ExplainabilityPanel topFeatures={row.top_features} />
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   )
 }
 
@@ -196,15 +345,27 @@ function CsvPredictionTab() {
     }
   }
 
-  const attacks = results.filter(r => r.prediction?.toLowerCase() === 'attack').length
-  const normal = results.length - attacks
-  const avgConf = results.length
-    ? results.reduce((s, r) => s + (r.confidence || 0), 0) / results.length : 0
+  const stats = useMemo(() => {
+    const attacks = results.filter(r => r.prediction?.toLowerCase() === 'attack').length
+    const normal = results.length - attacks
+    const avgConf = results.length
+      ? results.reduce((s, r) => s + (r.confidence || 0), 0) / results.length : 0
+
+    const sev = { High: 0, Medium: 0, Low: 0, Informational: 0 }
+    results.forEach(r => {
+      if (r.severity && sev[r.severity] !== undefined) sev[r.severity]++
+    })
+    return { attacks, normal, avgConf, sev }
+  }, [results])
 
   const pieData = [
-    { name: 'Attack', value: attacks },
-    { name: 'Normal', value: normal },
+    { name: 'Attack', value: stats.attacks },
+    { name: 'Normal', value: stats.normal },
   ].filter(d => d.value > 0)
+
+  const severityChartData = SEVERITY_ORDER
+    .map(s => ({ name: s, value: stats.sev[s] }))
+    .filter(d => d.value > 0)
 
   const buckets = { '0–25': 0, '26–50': 0, '51–75': 0, '76–100': 0 }
   results.forEach(r => {
@@ -312,21 +473,47 @@ function CsvPredictionTab() {
                 <line x1="9" y1="3" x2="9" y2="21" /><line x1="15" y1="3" x2="15" y2="21" />
               </svg>
             } />
-            <StatCard label="Threats Detected" value={attacks} accent="red" icon={
+            <StatCard label="Threats Detected" value={stats.attacks} accent="red" icon={
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
                 <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
               </svg>
             } />
-            <StatCard label="Normal Traffic" value={normal} accent="green" icon={
+            <StatCard label="Normal Traffic" value={stats.normal} accent="green" icon={
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
                 <polyline points="22 4 12 14.01 9 11.01" />
               </svg>
             } />
-            <StatCard label="Avg Confidence" value={`${Math.round(avgConf)}%`} accent="purple" icon={
+            <StatCard label="Avg Confidence" value={`${Math.round(stats.avgConf)}%`} accent="purple" icon={
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+              </svg>
+            } />
+          </div>
+
+          <h4 className="severity-summary-title">Severity Summary</h4>
+          <div className="stats-grid">
+            <StatCard label="High Severity Threats" value={stats.sev.High} accent="red" icon={
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 9v2m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              </svg>
+            } />
+            <StatCard label="Medium Severity Threats" value={stats.sev.Medium} accent="orange" icon={
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+            } />
+            <StatCard label="Low Severity Threats" value={stats.sev.Low} accent="blue" icon={
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M2 12h6l3-9 4 18 3-9h4" />
+              </svg>
+            } />
+            <StatCard label="Informational" value={stats.sev.Informational} accent="green" icon={
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="22 4 12 14.01 9 11.01" />
               </svg>
             } />
           </div>
@@ -351,6 +538,24 @@ function CsvPredictionTab() {
             </div>
 
             <div className="chart-card">
+              <h4 className="chart-title">Severity Distribution</h4>
+              <ResponsiveContainer width="100%" height={260}>
+                <PieChart>
+                  <Pie data={severityChartData} cx="50%" cy="50%" innerRadius={65} outerRadius={100}
+                    paddingAngle={4} dataKey="value"
+                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    labelLine={false}>
+                    {severityChartData.map((entry, i) => (
+                      <Cell key={i} fill={SEVERITY_COLORS[entry.name]} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={{ background: '#0d1117', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#f1f5f9', fontSize: '13px' }} />
+                  <Legend wrapperStyle={{ color: '#94a3b8', fontSize: '13px' }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="chart-card">
               <h4 className="chart-title">Confidence Distribution</h4>
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={barData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
@@ -364,6 +569,46 @@ function CsvPredictionTab() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
+
+            <div className="chart-card">
+              <h4 className="chart-title">Severity Counts</h4>
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart
+                  data={SEVERITY_ORDER.map(s => ({ name: s, count: stats.sev[s] }))}
+                  margin={{ top: 5, right: 10, left: -10, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                  <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={{ stroke: 'rgba(255,255,255,0.1)' }} tickLine={false} />
+                  <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ background: '#0d1117', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#f1f5f9', fontSize: '13px' }} />
+                  <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                    {SEVERITY_ORDER.map((s, i) => (
+                      <Cell key={i} fill={SEVERITY_COLORS[s]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="results-table-wrap">
+            <table className="results-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Prediction</th>
+                  <th>Confidence</th>
+                  <th>Severity</th>
+                  <th>Action</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {results.map((row, i) => (
+                  <CsvRow key={i} row={row} index={i} />
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
@@ -432,7 +677,7 @@ export default function App() {
 
       <footer className="footer">
         <div className="container footer__inner">
-          <span>CyberShield AI &middot; Powered by Machine Learning</span>
+          <span>CyberShield AI &middot; Powered by Deep Learning &amp; Explainable AI</span>
           <span>&copy; 2025 &middot; All rights reserved</span>
         </div>
       </footer>
